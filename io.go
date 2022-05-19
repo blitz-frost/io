@@ -126,6 +126,11 @@ type Writer interface {
 	Write([]byte) error
 }
 
+type WriteCloser interface {
+	Closer
+	Writer
+}
+
 // WriterFunc enable usage of functions with appropriate signature as Writers
 type WriterFunc func([]byte) error
 
