@@ -106,12 +106,17 @@ type Processor interface {
 }
 
 type Reader interface {
-	Read() ([]byte, error)
+	Read(int) ([]byte, error)
 }
 
 type ReadWriter interface {
 	Reader
 	Writer
+}
+
+// A Viewer is a Reader variant that returns all available data.
+type Viewer interface {
+	View() ([]byte, error)
 }
 
 // A VoidWriter is used to consume data without actually doing anything with it.
