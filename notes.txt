@@ -1,0 +1,5 @@
+TODO
+- review interface architecture; harmonize with "msg" subpackage
+- consider creating generic interface package
+ - replace all the flavors of basically the same thing (io/msg)
+- review non-interface types

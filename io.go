@@ -100,13 +100,18 @@ func (x MultiLink) Write(b []byte) error {
 	return nil
 }
 
-// A Processor can be conceptualized as a Writer with an automatic Read.
+// A Processor can be conceptualized as a Writer with an automatic View.
 type Processor interface {
 	Process([]byte) ([]byte, error)
 }
 
 type Reader interface {
 	Read(int) ([]byte, error)
+}
+
+type ReadCloser interface {
+	Closer
+	Reader
 }
 
 type ReadWriter interface {
