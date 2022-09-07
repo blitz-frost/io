@@ -1,42 +1,59 @@
-// Package msg focuses on message based io, i.e. discrete data packets, instead of continuous data streams as when using a simple io.Writer or io.Reader.
-// While this could also be achieved through buffering, the approach here is to work with an appropriate io.Closer.
-// For example: instead of writing directly to a io.Writer, we request a Writer from a WriterSource, write to it, then close it to signal that the message is finished.
-//
-// This package exists in order to not overload the root io package, and mirrors its terminology.
 package msg
 
 import (
 	"github.com/blitz-frost/io"
+	"github.com/blitz-frost/msg"
 )
 
-type ReadChainer interface {
-	ChainRead(ReaderFrom) error
+type Conn = msg.Conn[Reader, Writer]
+
+// A Demultiplexer chains incoming messages from particular channels to a respective destination.
+type Demultiplexer interface {
+	ReaderChain(byte, ReaderTaker) error
 }
 
-// A Reader may generally self close when done reading, but it shouldn't relly on the user reading until EOF.
-type Reader = io.ReadCloser
-
-type ReaderFrom interface {
-	ReadFrom(Reader) error
+type MultiplexConn interface {
+	Demultiplexer
+	Multiplexer
 }
 
-type ReaderSource interface {
-	Reader() (Reader, error)
+// A Multiplexer provides Writers to particular channels of a connection.
+// A single byte is chosen for mapping, as it should be the easiest to implement while providing more than enough channels for most use cases.
+type Multiplexer interface {
+	Writer(byte) (Writer, error)
 }
 
-type WriteChainer interface {
-	ChainWrite(WriterTo) error
+type ExchangeConn = msg.Conn[ExchangeReader, ExchangeWriter]
+
+type ExchangeReader interface {
+	Reader
+	WriterGiver
 }
 
-type Writer interface {
-	io.WriteCloser
-	Cancel() // allow users to cancel a message without sending it
+type ExchangeReaderChainer = msg.ReaderChainer[ExchangeReader]
+
+type ExchangeReaderTaker = msg.ReaderTaker[ExchangeReader]
+
+type ExchangeWriter interface {
+	Writer
+	ReaderGiver
 }
 
-type WriterSource interface {
-	Writer() (Writer, error)
+type ExchangeWriterGiver = msg.WriterGiver[ExchangeWriter]
+
+type Reader = io.Reader
+
+type ReaderChainer = msg.ReaderChainer[Reader]
+
+type ReaderGiver = msg.ReaderGiver[Reader]
+
+type ReaderTaker = msg.ReaderTaker[Reader]
+
+type Writer = io.Writer
+
+type WriteCanceler interface {
+	Writer
+	msg.Canceler
 }
 
-type WriterTo interface {
-	WriteTo(Writer) error
-}
+type WriterGiver = msg.WriterGiver[Writer]
