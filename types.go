@@ -1,6 +1,66 @@
 package io
 
+import (
+	"fmt"
+)
+
 const defaultSize = 4096
+
+type ErrorEntry struct {
+	Source any // error source; can provide more meaningful error messages by implementing Stringer
+	Err    error
+}
+
+func (x ErrorEntry) Error() string {
+	return fmt.Sprintf("{source: %v; error: %v}", x.Source, x.Err)
+}
+
+// A MultiError bundles multiple errors together.
+// Useful when a process can continue execution despite multiple potential error points, but cannot deal with the errors itself.
+type MultiError []ErrorEntry
+
+func (x MultiError) Error() string {
+	var s string
+	for _, e := range x {
+		s += e.Error() + "\n"
+	}
+	return s
+}
+
+// A MultiWriter bundles multiple Writers together.
+type MultiWriter []Writer
+
+func (x MultiWriter) Close() error {
+	var err MultiError
+
+	for _, w := range x {
+		if e := w.Close(); e != nil {
+			err = append(err, ErrorEntry{w, e})
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Write will write b to all bundled Writers sequentially. Will always return len(b).
+// If there is an error, it will be a [MultiError]. Errors do not stop the Write sequence.
+func (x MultiWriter) Write(b []byte) (int, error) {
+	var err MultiError
+
+	for _, w := range x {
+		if _, e := w.Write(b); e != nil {
+			err = append(err, ErrorEntry{w, e})
+		}
+	}
+
+	if err != nil {
+		return len(b), err
+	}
+	return len(b), nil
+}
 
 // A BytesReader attaches a simple Reader interface to a byte slice.
 type BytesReader []byte
