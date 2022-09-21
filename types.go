@@ -6,6 +6,25 @@ import (
 
 const defaultSize = 4096
 
+// A BytesReader attaches a simple Reader interface to a byte slice.
+type BytesReader []byte
+
+func (x *BytesReader) Close() error {
+	return nil
+}
+
+func (x *BytesReader) Read(b []byte) (int, error) {
+	n := copy(b, *x)
+
+	var err error
+	if n < len(b) {
+		err = EOF
+	}
+	*x = (*x)[n:]
+
+	return n, err
+}
+
 type ErrorEntry struct {
 	Source any // error source; can provide more meaningful error messages by implementing Stringer
 	Err    error
@@ -60,25 +79,6 @@ func (x MultiWriter) Write(b []byte) (int, error) {
 		return len(b), err
 	}
 	return len(b), nil
-}
-
-// A BytesReader attaches a simple Reader interface to a byte slice.
-type BytesReader []byte
-
-func (x *BytesReader) Close() error {
-	return nil
-}
-
-func (x *BytesReader) Read(b []byte) (int, error) {
-	n := copy(b, *x)
-
-	var err error
-	if n < len(b) {
-		err = EOF
-	}
-	*x = (*x)[n:]
-
-	return n, err
 }
 
 // A ReadBuffer pulls data in buffered chunks, minimizing the number of read calls to the underlying source Reader.
@@ -208,6 +208,10 @@ func (x *WriteBuffer) Flush() error {
 	}
 	n, err := x.dst.Write(x.buf[x.r:x.w])
 	x.r += n
+	if x.r == x.w {
+		x.r = 0
+		x.w = 0
+	}
 	return err
 }
 
