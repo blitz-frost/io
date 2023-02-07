@@ -145,26 +145,6 @@ func (x *ReadBuffer) Reset(src Reader) {
 	x.src = src
 }
 
-// A ReaderFull wraps a Reader to behave as described by this package, filling the entire read slice.
-type ReaderFull struct {
-	Src Reader
-}
-
-func (x ReaderFull) Close() error {
-	return x.Src.Close()
-}
-
-func (x ReaderFull) Read(b []byte) (int, error) {
-	for w := 0; w < len(b); {
-		n, err := x.Src.Read(b[w:])
-		w += n
-		if err != nil {
-			return w, err
-		}
-	}
-	return len(b), nil
-}
-
 // A WriteBuffer accumulates Write calls before forwarding them, minimizing calls to the destination.
 type WriteBuffer struct {
 	buf []byte

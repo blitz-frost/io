@@ -16,15 +16,15 @@ func (x reader) Close() error {
 }
 
 func (x reader) Read(b []byte) (int, error) {
-	var (
-		o, n int
-		err  error
-	)
-	for o < len(b) && err == nil {
-		n, err = x.r.Read(b[o:])
+	for o := 0; o < len(b); {
+		n, err := x.r.Read(b[o:])
 		o += n
+		// discard error if read is actually full
+		if err != nil && o < len(b) {
+			return o, err
+		}
 	}
-	return o, err
+	return len(b), nil
 }
 
 type writer struct {
@@ -35,7 +35,7 @@ func (x writer) Close() error {
 	return nil
 }
 
-// ReaderOf adapts an [io.Reader] to this package's full read convention.
+// ReaderOf adapts an [io.Reader] to this package's conventions: full reads and no error on full read.
 // If it is not a Closer, it will also get a NoOp Close method.
 func ReaderOf(r io.Reader) Reader {
 	return reader{r}
