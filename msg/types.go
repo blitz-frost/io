@@ -2,6 +2,7 @@ package msg
 
 import (
 	"sync"
+	"sync/atomic"
 )
 
 // A Buffer accumulates writes before forwading them in a single call when closing.
@@ -139,10 +140,7 @@ func (x *WriterGiverMutex) Writer() (Writer, error) {
 		x.mux.Unlock()
 		return nil, err
 	}
-	return writerMutex{
-		Writer: w,
-		mux:    &x.mux,
-	}, nil
+	return writerMutexMake(w, &x.mux), nil
 }
 
 type answer struct {
@@ -221,10 +219,22 @@ func (x readerAsync) Read(b []byte) (int, error) {
 
 type writerMutex struct {
 	Writer
-	mux *sync.Mutex
+	closed *atomic.Bool
+	mux    *sync.Mutex
+}
+
+func writerMutexMake(w Writer, mux *sync.Mutex) writerMutex {
+	return writerMutex{
+		Writer: w,
+		closed: &atomic.Bool{},
+		mux:    mux,
+	}
 }
 
 func (x writerMutex) Close() error {
+	if !x.closed.CompareAndSwap(false, true) {
+		return nil
+	}
 	err := x.Writer.Close()
 	x.mux.Unlock()
 	return err
