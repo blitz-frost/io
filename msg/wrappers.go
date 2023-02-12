@@ -12,7 +12,7 @@ type demultiplexer struct {
 	rt map[byte]ReaderTaker
 }
 
-func makeDemultiplexer() demultiplexer {
+func demultiplexerMake() demultiplexer {
 	return demultiplexer{
 		b:  make([]byte, 1),
 		rt: make(map[byte]ReaderTaker),
@@ -62,7 +62,7 @@ type exchangeReaderChainer struct {
 	wg  WriterGiver
 }
 
-func newExchangeReaderChainer(wg WriterGiver) *exchangeReaderChainer {
+func exchangeReaderChainerNew(wg WriterGiver) *exchangeReaderChainer {
 	return &exchangeReaderChainer{
 		wg: wg,
 	}
@@ -119,10 +119,10 @@ type exchangeWriterGiver struct {
 	disp *dispatch
 }
 
-func makeExchangeWriterGiver(wg WriterGiver) exchangeWriterGiver {
+func exchangeWriterGiverMake(wg WriterGiver) exchangeWriterGiver {
 	return exchangeWriterGiver{
 		wg:   wg,
-		disp: newDispatch(),
+		disp: dispatchNew(),
 	}
 }
 
@@ -196,7 +196,7 @@ func ConnOf(mc MultiplexConn, ch byte) msg.ConnBlock[Reader, Writer] {
 // [MultiplexerOf] should be used on the sending end.
 // The returned value will also be a [ReaderTaker].
 func DemultiplexerOf(rc ReaderChainer) (Demultiplexer, error) {
-	x := makeDemultiplexer()
+	x := demultiplexerMake()
 	if err := rc.ReaderChain(x); err != nil {
 		return nil, err
 	}
@@ -205,8 +205,8 @@ func DemultiplexerOf(rc ReaderChainer) (Demultiplexer, error) {
 
 // The connections for the reader and writer side must be distinct.
 func ExchangeConnOf(rExc, wExc Conn) (msg.ConnBlock[ExchangeReader, ExchangeWriter], error) {
-	erc := newExchangeReaderChainer(rExc)
-	ewg := makeExchangeWriterGiver(wExc)
+	erc := exchangeReaderChainerNew(rExc)
+	ewg := exchangeWriterGiverMake(wExc)
 	x := msg.ConnBlock[ExchangeReader, ExchangeWriter]{erc, ewg}
 	if err := rExc.ReaderChain(erc); err != nil {
 		return x, err
@@ -218,7 +218,7 @@ func ExchangeConnOf(rExc, wExc Conn) (msg.ConnBlock[ExchangeReader, ExchangeWrit
 // Instead, the Conn must first be converted to a MultiplexConn, of which separate channels must be used.
 // The returned value is also a [ReaderTaker].
 func ExchangeReaderChainerOf(c Conn) (ExchangeReaderChainer, error) {
-	x := newExchangeReaderChainer(c)
+	x := exchangeReaderChainerNew(c)
 	return x, c.ReaderChain(x)
 }
 
@@ -226,13 +226,13 @@ func ExchangeReaderChainerOf(c Conn) (ExchangeReaderChainer, error) {
 // Instead, the Conn must first be converted to a MultiplexConn, of which separate channels must be used.
 // The returned value is also a [ReaderTaker].
 func ExchangeWriterGiverOf(c Conn) (ExchangeWriterGiver, error) {
-	x := makeExchangeWriterGiver(c)
+	x := exchangeWriterGiverMake(c)
 	return x, c.ReaderChain(x)
 }
 
 // The returned value will also be a [ReaderTaker].
 func MultiplexConnOf(c Conn) (MultiplexConn, error) {
-	x := multiplexConn{makeDemultiplexer(), multiplexer{c}}
+	x := multiplexConn{demultiplexerMake(), multiplexer{c}}
 	return x, c.ReaderChain(x)
 }
 

@@ -1,6 +1,7 @@
 package io
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -25,60 +26,33 @@ func (x *BytesReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-type ErrorEntry struct {
-	Source any // error source; can provide more meaningful error messages by implementing Stringer
-	Err    error
-}
-
-func (x ErrorEntry) Error() string {
-	return fmt.Sprintf("{source: %v; error: %v}", x.Source, x.Err)
-}
-
-// A MultiError bundles multiple errors together.
-// Useful when a process can continue execution despite multiple potential error points, but cannot deal with the errors itself.
-type MultiError []ErrorEntry
-
-func (x MultiError) Error() string {
-	var s string
-	for _, e := range x {
-		s += e.Error() + "\n"
-	}
-	return s
-}
-
 // A MultiWriter bundles multiple Writers together.
 type MultiWriter []Writer
 
 func (x MultiWriter) Close() error {
-	var err MultiError
+	var err []error
 
-	for _, w := range x {
+	for i, w := range x {
 		if e := w.Close(); e != nil {
-			err = append(err, ErrorEntry{w, e})
+			err = append(err, fmt.Errorf("Writer %v: %w", i, e))
 		}
 	}
 
-	if err != nil {
-		return err
-	}
-	return nil
+	return errors.Join(err...)
 }
 
 // Write will write b to all bundled Writers sequentially. Will always return len(b).
 // If there is an error, it will be a [MultiError]. Errors do not stop the Write sequence.
 func (x MultiWriter) Write(b []byte) (int, error) {
-	var err MultiError
+	var err []error
 
-	for _, w := range x {
+	for i, w := range x {
 		if _, e := w.Write(b); e != nil {
-			err = append(err, ErrorEntry{w, e})
+			err = append(err, fmt.Errorf("Writer %v: %w", i, e))
 		}
 	}
 
-	if err != nil {
-		return len(b), err
-	}
-	return len(b), nil
+	return len(b), errors.Join(err...)
 }
 
 // A ReadBuffer pulls data in buffered chunks, minimizing the number of read calls to the underlying source Reader.
@@ -89,9 +63,9 @@ type ReadBuffer struct {
 	src Reader
 }
 
-// NewReadBuffer returns a ReadBuffer from [src].
+// ReadBufferNew returns a ReadBuffer from [src].
 // [buf] may be nil, in which case a default sized buffer will be allocated.
-func NewReadBuffer(src Reader, buf []byte) *ReadBuffer {
+func ReadBufferNew(src Reader, buf []byte) *ReadBuffer {
 	if buf == nil {
 		buf = make([]byte, defaultSize)
 	}
@@ -153,8 +127,8 @@ type WriteBuffer struct {
 	dst Writer
 }
 
-// NewWriteBuffer returns a WriteBuffer to [dst]. If [buf] is nil, a default will be allocated.
-func NewWriteBuffer(dst Writer, buf []byte) *WriteBuffer {
+// WriteBufferNew returns a WriteBuffer to [dst]. If [buf] is nil, a default will be allocated.
+func WriteBufferNew(dst Writer, buf []byte) *WriteBuffer {
 	if buf == nil {
 		buf = make([]byte, defaultSize)
 	}

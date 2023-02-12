@@ -1,3 +1,6 @@
+// Package msg defines the io variants of the github.com/blitz-frost/msg interfaces, as well as several implementation utilities.
+//
+// See the Packet type family for a quick way to adapt io, stream based functionality to a discrete message based one.
 package msg
 
 import (

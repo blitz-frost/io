@@ -19,4 +19,6 @@ type Closer = io.Closer
 
 type Reader = io.ReadCloser
 
+type ReadWriter = io.ReadWriteCloser
+
 type Writer = io.WriteCloser

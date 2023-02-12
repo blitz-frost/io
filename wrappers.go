@@ -27,6 +27,11 @@ func (x reader) Read(b []byte) (int, error) {
 	return len(b), nil
 }
 
+type readWriter struct {
+	reader    // provides Read + Close
+	io.Writer // unmodified Write
+}
+
 type writer struct {
 	io.Writer
 }
@@ -41,7 +46,18 @@ func ReaderOf(r io.Reader) Reader {
 	return reader{r}
 }
 
-// WriterOf attaches a NoOp Close method to an [io.Writer].
+// ReadWriterOf is the ReadWrite equivalent of ReaderOf.
+func ReadWriterOf(rw io.ReadWriter) ReadWriter {
+	return readWriter{
+		reader{rw},
+		rw,
+	}
+}
+
+// WriterOf attaches a NoOp Close method to an [io.Writer], if it doesn't already have one.
 func WriterOf(w io.Writer) Writer {
+	if same, ok := w.(Writer); ok {
+		return same
+	}
 	return writer{w}
 }
