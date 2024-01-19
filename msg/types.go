@@ -15,7 +15,7 @@ type Buffer struct {
 	buf []byte
 }
 
-func BufferNew(dst Writer) *Buffer {
+func BufferMake(dst Writer) *Buffer {
 	return &Buffer{
 		dst: dst,
 		buf: []byte{}, // avoids panic if canceled with no writes
@@ -62,7 +62,7 @@ type BufferGiver struct {
 // buf may be nil, in which case a new *Buffer will be allocated.
 func BufferGiverMake(wg WriterGiver, buf *Buffer) BufferGiver {
 	if buf == nil {
-		buf = BufferNew(nil)
+		buf = BufferMake(nil)
 	}
 	return BufferGiver{
 		wg:  wg,
@@ -89,7 +89,7 @@ type PacketConn struct {
 
 func PacketConnMake(rw io.ReadWriter) PacketConn {
 	return PacketConn{
-		PacketReaderChainerNew(rw),
+		PacketReaderChainerMake(rw),
 		PacketWriterGiver{rw},
 	}
 }
@@ -107,7 +107,7 @@ type PacketReader struct {
 	closed bool
 }
 
-func PacketReaderNew(r io.Reader) *PacketReader {
+func PacketReaderMake(r io.Reader) *PacketReader {
 	return &PacketReader{r: r}
 }
 
@@ -200,14 +200,14 @@ type PacketReaderChainer struct {
 	rt ReaderTaker
 }
 
-func PacketReaderChainerNew(r io.Reader) *PacketReaderChainer {
+func PacketReaderChainerMake(r io.Reader) *PacketReaderChainer {
 	return &PacketReaderChainer{r: r}
 }
 
 // Listen executes a message receiving loop. It will only return on chained ReaderTaker error.
 func (x *PacketReaderChainer) Listen() error {
 	for {
-		r := PacketReaderNew(x.r)
+		r := PacketReaderMake(x.r)
 		if err := x.rt.ReaderTake(r); err != nil {
 			return err
 		}
@@ -231,7 +231,7 @@ type PacketWriter struct {
 	closed bool
 }
 
-func PacketWriterNew(w io.Writer) *PacketWriter {
+func PacketWriterMake(w io.Writer) *PacketWriter {
 	return &PacketWriter{w: w}
 }
 
@@ -283,7 +283,7 @@ type PacketWriterGiver struct {
 }
 
 func (x PacketWriterGiver) Writer() (Writer, error) {
-	return PacketWriterNew(x.W), nil
+	return PacketWriterMake(x.W), nil
 }
 
 // ReaderChainerAsync wraps a ReaderChainer to chain asynchronously.
@@ -294,7 +294,7 @@ type ReaderChainerAsync struct {
 	ch chan struct{}
 }
 
-func ReaderChainerAsyncNew(rc ReaderChainer) (*ReaderChainerAsync, error) {
+func ReaderChainerAsyncMake(rc ReaderChainer) (*ReaderChainerAsync, error) {
 	x := &ReaderChainerAsync{
 		ch: make(chan struct{}),
 	}
@@ -335,7 +335,7 @@ type WriterGiverMutex struct {
 	mux sync.Mutex
 }
 
-func WriterGiverMutexNew(wg WriterGiver) *WriterGiverMutex {
+func WriterGiverMutexMake(wg WriterGiver) *WriterGiverMutex {
 	return &WriterGiverMutex{
 		wg: wg,
 	}
@@ -363,7 +363,7 @@ type dispatch struct {
 	mux     sync.Mutex
 }
 
-func dispatchNew() *dispatch {
+func dispatchMake() *dispatch {
 	return &dispatch{
 		pending: make(map[uint64]chan answer),
 	}

@@ -62,7 +62,7 @@ type exchangeReaderChainer struct {
 	wg  WriterGiver
 }
 
-func exchangeReaderChainerNew(wg WriterGiver) *exchangeReaderChainer {
+func exchangeReaderChainerMake(wg WriterGiver) *exchangeReaderChainer {
 	return &exchangeReaderChainer{
 		wg: wg,
 	}
@@ -122,7 +122,7 @@ type exchangeWriterGiver struct {
 func exchangeWriterGiverMake(wg WriterGiver) exchangeWriterGiver {
 	return exchangeWriterGiver{
 		wg:   wg,
-		disp: dispatchNew(),
+		disp: dispatchMake(),
 	}
 }
 
@@ -188,6 +188,20 @@ func (x writerGiver) Writer() (Writer, error) {
 	return x.m.Writer(x.i)
 }
 
+func ConnAsyncOf(c Conn) (msg.ConnBlock[Reader, Writer], error) {
+	var o msg.ConnBlock[Reader, Writer]
+
+	rc, err := ReaderChainerAsyncMake(c)
+	if err != nil {
+		return o, err
+	}
+
+	o.ReaderChainer = rc
+	o.WriterGiver = WriterGiverMutexMake(c)
+
+	return o, nil
+}
+
 func ConnOf(mc MultiplexConn, ch byte) msg.ConnBlock[Reader, Writer] {
 	return msg.ConnBlock[Reader, Writer]{readerChainer{mc, ch}, writerGiver{mc, ch}}
 }
@@ -205,7 +219,7 @@ func DemultiplexerOf(rc ReaderChainer) (Demultiplexer, error) {
 
 // The connections for the reader and writer side must be distinct.
 func ExchangeConnOf(rExc, wExc Conn) (msg.ConnBlock[ExchangeReader, ExchangeWriter], error) {
-	erc := exchangeReaderChainerNew(rExc)
+	erc := exchangeReaderChainerMake(rExc)
 	ewg := exchangeWriterGiverMake(wExc)
 	x := msg.ConnBlock[ExchangeReader, ExchangeWriter]{erc, ewg}
 	if err := rExc.ReaderChain(erc); err != nil {
@@ -218,7 +232,7 @@ func ExchangeConnOf(rExc, wExc Conn) (msg.ConnBlock[ExchangeReader, ExchangeWrit
 // Instead, the Conn must first be converted to a MultiplexConn, of which separate channels must be used.
 // The returned value is also a [ReaderTaker].
 func ExchangeReaderChainerOf(c Conn) (ExchangeReaderChainer, error) {
-	x := exchangeReaderChainerNew(c)
+	x := exchangeReaderChainerMake(c)
 	return x, c.ReaderChain(x)
 }
 

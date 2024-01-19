@@ -63,9 +63,9 @@ type ReadBuffer struct {
 	src Reader
 }
 
-// ReadBufferNew returns a ReadBuffer from [src].
+// ReadBufferMake returns a ReadBuffer from [src].
 // [buf] may be nil, in which case a default sized buffer will be allocated.
-func ReadBufferNew(src Reader, buf []byte) *ReadBuffer {
+func ReadBufferMake(src Reader, buf []byte) *ReadBuffer {
 	if buf == nil {
 		buf = make([]byte, defaultSize)
 	}
@@ -127,8 +127,8 @@ type WriteBuffer struct {
 	dst Writer
 }
 
-// WriteBufferNew returns a WriteBuffer to [dst]. If [buf] is nil, a default will be allocated.
-func WriteBufferNew(dst Writer, buf []byte) *WriteBuffer {
+// WriteBufferMake returns a WriteBuffer to [dst]. If [buf] is nil, a default will be allocated.
+func WriteBufferMake(dst Writer, buf []byte) *WriteBuffer {
 	if buf == nil {
 		buf = make([]byte, defaultSize)
 	}
