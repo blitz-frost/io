@@ -1,58 +1,28 @@
 package io
 
 import (
-	"errors"
-	"fmt"
+	"github.com/blitz-frost/errors"
 )
 
 const defaultSize = 4096
 
-// A BytesReader attaches a simple Reader interface to a byte slice.
-type BytesReader []byte
-
-func (x *BytesReader) Close() error {
-	return nil
-}
-
-func (x *BytesReader) Read(b []byte) (int, error) {
-	n := copy(b, *x)
-
-	var err error
-	if n < len(b) {
-		err = EOF
-	}
-	*x = (*x)[n:]
-
-	return n, err
-}
-
 // A MultiWriter bundles multiple Writers together.
 type MultiWriter []Writer
 
-func (x MultiWriter) Close() error {
-	var err []error
-
-	for i, w := range x {
-		if e := w.Close(); e != nil {
-			err = append(err, fmt.Errorf("Writer %v: %w", i, e))
-		}
-	}
-
-	return errors.Join(err...)
-}
-
 // Write will write b to all bundled Writers sequentially. Will always return len(b).
-// If there is an error, it will be a [MultiError]. Errors do not stop the Write sequence.
-func (x MultiWriter) Write(b []byte) (int, error) {
-	var err []error
+// Errors do not stop the Write sequence.
+//
+// The returned errors will be marked with their respective writer index (int).
+func (x MultiWriter) Write(b []byte) (int, errors.G) {
+	var oErr errors.G
 
 	for i, w := range x {
-		if _, e := w.Write(b); e != nil {
-			err = append(err, fmt.Errorf("Writer %v: %w", i, e))
+		if _, err := w.Write(b); err != nil {
+			oErr = append(oErr, errors.Mark(i, err))
 		}
 	}
 
-	return len(b), errors.Join(err...)
+	return len(b), oErr
 }
 
 // A ReadBuffer pulls data in buffered chunks, minimizing the number of read calls to the underlying source Reader.
@@ -75,11 +45,7 @@ func ReadBufferMake(src Reader, buf []byte) *ReadBuffer {
 	}
 }
 
-func (x *ReadBuffer) Close() error {
-	x.r = x.w
-	return x.src.Close()
-}
-
+// Any returned error is from underlying Read calls.
 func (x *ReadBuffer) Read(b []byte) (int, error) {
 	if x.w-x.r >= len(b) {
 		// have enough buffered data
@@ -143,18 +109,6 @@ func (x *WriteBuffer) Bytes() []byte {
 	return x.buf[x.r:x.w]
 }
 
-// Close flushes any remaining data before closing the destination Writer.
-func (x *WriteBuffer) Close() error {
-	// x.r will be non zero if a write error occured; don't flush in this case
-	if x.r == 0 && x.w > 0 {
-		if _, err := x.dst.Write(x.buf[:x.w]); err != nil {
-			return err
-		}
-		x.w = 0
-	}
-	return x.dst.Close()
-}
-
 // Flush writes out any pending data.
 func (x *WriteBuffer) Flush() error {
 	if x.r == x.w {
@@ -169,6 +123,7 @@ func (x *WriteBuffer) Flush() error {
 	return err
 }
 
+// Any returned error is from underlying Write calls.
 func (x *WriteBuffer) Write(b []byte) (int, error) {
 	var (
 		o   = 0 // transfered byte count from b

@@ -1,6 +1,9 @@
 // Package msg defines the io variants of the github.com/blitz-frost/msg interfaces, as well as several implementation utilities.
 //
-// See the Packet type family for a quick way to adapt io, stream based functionality to a discrete message based one.
+// See the Packet family for a quick way to adapt io, stream based functionality to a discrete message based one.
+//
+// Reader.Data can implement io.WriterTakerCaster, and Writer.Data can implement io.ReaderTakerCaster, in order to facilitate direct data transfer without intermediary buffers. Note that these implementations won't be responsible for closing either side.
+// This functionality is attributed to Readers/Writers, as they are what is passed along data chains. Thus, it is sufficient for the origin (and possible intermediary wrappers) to provide the necessary functionality, in order for it to be available at every level.
 package msg
 
 import (
@@ -8,55 +11,98 @@ import (
 	"github.com/blitz-frost/msg"
 )
 
-type Conn = msg.Conn[Reader, Writer]
+type Canceler = msg.Canceler
 
-// A Demultiplexer chains incoming messages from particular channels to a respective destination.
-type Demultiplexer interface {
-	ReaderChain(byte, ReaderTaker) error
+type Closer = msg.Closer
+
+type ExchangeInlet func() (ExchangeInput, error)
+
+type ExchangeInput struct {
+	Read   Reader
+	Close  Closer
+	Output Outlet   // independent of Close, i.e. must be able to start writing before finishing to read
+	Cancel Canceler // callable at any time before Output
+
+	// optional
+	WriteTo WriterTo
 }
 
-type MultiplexConn interface {
-	Demultiplexer
-	Multiplexer
+type ExchangeInputTaker func(ExchangeInput) error
+
+type ExchangeOutlet func() (ExchangeOutput, error)
+
+type ExchangeOutput struct {
+	Write  Writer
+	Close  Closer // callable before Input, but not mandatory
+	Input  Inlet
+	Cancel Canceler // callable even during an Input call, unblocking it
+
+	// optional
+	ReadFrom ReaderFrom
 }
 
-// A Multiplexer provides Writers to particular channels of a connection.
-// A single byte is chosen for mapping, as it should be the easiest to implement while providing more than enough channels for most use cases.
-type Multiplexer interface {
-	Writer(byte) (Writer, error)
+type Inlet func() (Input, error)
+
+type Input struct {
+	Read  Reader
+	Close Closer
+
+	// optional
+	WriteTo WriterTo
 }
 
-type ExchangeConn = msg.Conn[ExchangeReader, ExchangeWriter]
+type InputTaker func(Input) error
 
-type ExchangeReader interface {
-	Reader
-	WriterGiver
+type MultiplexInlet func() (int, Input, error)
+
+type MultiplexOutlet func(int) (Output, error)
+
+type MultiplexInputTaker func(int, Input) error
+
+type MultiplexSocket struct {
+	Input  MultiplexInlet
+	Output MultiplexOutlet
 }
 
-type ExchangeReaderChainer = msg.ReaderChainer[ExchangeReader]
+type Outlet func() (Output, error)
 
-type ExchangeReaderTaker = msg.ReaderTaker[ExchangeReader]
+type Output struct {
+	Write Writer
+	Close Closer
 
-type ExchangeWriter interface {
-	Writer
-	ReaderGiver
+	// optional
+	Cancel   Canceler
+	ReadFrom ReaderFrom
 }
 
-type ExchangeWriterGiver = msg.WriterGiver[ExchangeWriter]
+// Abort is a convenience method that cancels the message if possible, or closes it otherwise.
+func (x Output) Abort() error {
+	if x.Cancel != nil {
+		return x.Cancel()
+	}
 
-type Reader = io.Reader
-
-type ReaderChainer = msg.ReaderChainer[Reader]
-
-type ReaderGiver = msg.ReaderGiver[Reader]
-
-type ReaderTaker = msg.ReaderTaker[Reader]
-
-type Writer = io.Writer
-
-type WriteCanceler interface {
-	Writer
-	msg.Canceler
+	return x.Close()
 }
 
-type WriterGiver = msg.WriterGiver[Writer]
+type Reader func([]byte) (int, error)
+
+func (x Reader) Read(b []byte) (int, error) {
+	return x(b)
+}
+
+type ReaderFrom func(Reader) (int64, error)
+
+func ReaderFromOf(rf io.ReaderFrom) ReaderFrom {
+	return func(r Reader) (int64, error) {
+		return rf.ReadFrom(r)
+	}
+}
+
+type Socket struct {
+	Input  Inlet
+	Output Outlet
+}
+
+type Writer func([]byte) (int, error)
+
+type WriterTo func(Writer) (int64, error)
