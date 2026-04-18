@@ -84,9 +84,9 @@ func (x Output) Abort() error {
 	return x.Close()
 }
 
-type Reader func([]byte) (int, error)
+type Reader func([]byte) *io.Error
 
-func (x Reader) Read(b []byte) (int, error) {
+func (x Reader) Read(b []byte) *io.Error {
 	return x(b)
 }
 
@@ -103,6 +103,10 @@ type Socket struct {
 	Output Outlet
 }
 
-type Writer func([]byte) (int, error)
+type Writer func([]byte) *io.Error
+
+func (x Writer) Write(b []byte) *io.Error {
+	return x(b)
+}
 
 type WriterTo func(Writer) (int64, error)

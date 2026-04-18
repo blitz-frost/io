@@ -101,7 +101,7 @@ func (x ExchangeOutletAdapter) InputTake(id int, in Input) error {
 		err.Add(in.Close())
 		err.Add(x.disp.resolve(id, Input{}))
 
-		return err.Wrap()
+		return err.Resolve()
 	}
 
 	return x.disp.resolve(id, in)
@@ -161,7 +161,7 @@ func (x ExchangeSocket) Close() error {
 	err.Add(x.in.Close())
 	err.Add(x.out.Close())
 
-	return err.Wrap()
+	return err.Resolve()
 }
 
 func (x ExchangeSocket) Input() (ExchangeInput, error) {
@@ -171,7 +171,10 @@ func (x ExchangeSocket) Input() (ExchangeInput, error) {
 func (x ExchangeSocket) InputTake(in Input) error {
 	var id Int
 	if _, err := id.ReadFrom(in.Read); err != nil {
-		oErr := errors.Message("exchange ID read", err)
+		oErr := &errors.T{
+			Message: "exchange ID read",
+			Sub:     err,
+		}
 		oErr.Link(in.Close())
 		return oErr
 	}
@@ -196,18 +199,22 @@ func (x ExchangeSocket) Output() (ExchangeOutput, error) {
 type Int int
 
 func (x *Int) ReadFrom(r Reader) (int64, error) {
-	var i int64
+	var i int64 // this makes the encoding more portable
 	b := unsafe.Slice((*byte)(unsafe.Pointer(&i)), 8)
-	n, err := r(b)
+	if err := r(b); err != nil {
+		return int64(err.N), err.Err
+	}
 	*x = Int(i)
-	return int64(n), err
+	return int64(len(b)), nil
 }
 
 func (x Int) WriteTo(w Writer) (int64, error) {
 	i := int64(x) // for portability
 	b := unsafe.Slice((*byte)(unsafe.Pointer(&i)), 8)
-	n, err := w(b)
-	return int64(n), err
+	if err := w(b); err != nil {
+		return int64(err.N), err.Err
+	}
+	return int64(len(b)), nil
 }
 
 type MultiplexMap map[int]InputTaker
@@ -215,7 +222,11 @@ type MultiplexMap map[int]InputTaker
 func (x MultiplexMap) InputTake(ch int, in Input) error {
 	it, ok := x[ch]
 	if !ok {
-		return errors.Simple("invalid channel")
+		err := &errors.T{
+			Message: "invalid channel",
+		}
+		err.Link(in.Close())
+		return err
 	}
 
 	return it(in)
@@ -225,7 +236,11 @@ type MultiplexSlice []InputTaker
 
 func (x MultiplexSlice) InputTake(ch int, in Input) error {
 	if ch >= len(x) {
-		return errors.Simple("invalid channel")
+		err := &errors.T{
+			Message: "invalid channel",
+		}
+		err.Link(in.Close())
+		return err
 	}
 
 	return x[ch](in)
@@ -253,21 +268,25 @@ func (x *PacketReader) Close() error {
 
 	// under normal conditions, a message should have been fully read, so that the next Read call will simply return EOF
 	b := make([]byte, 1)
-	if _, err := x.Read(b); err == io.EOF {
-		return nil
-	} else if err != nil {
-		// any other error is related to the underlying Reader
-		return err
+	if err := x.Read(b); err != nil {
+		if err.Err == io.EOF {
+			return nil
+		} else {
+			// any other error is related to the underlying Reader
+			return err.Err
+		}
 	}
 
 	// no error means the current message end has not been reached
 	// dump all remaining data
 	b = make([]byte, 4096)
 	for {
-		if _, err := x.Read(b); err == io.EOF {
-			return nil
-		} else if err != nil {
-			return err
+		if err := x.Read(b); err != nil {
+			if err.Err == io.EOF {
+				return nil
+			} else {
+				return err
+			}
 		}
 	}
 
@@ -277,12 +296,15 @@ func (x *PacketReader) Close() error {
 // Read reads from the first encountered message into b.
 //
 // Internally, a PacketReader will process as many packets as necessary to fulfill a Read.
-func (x *PacketReader) Read(b []byte) (int, error) {
+func (x *PacketReader) Read(b []byte) *io.Error {
 	if len(b) == 0 {
-		return 0, nil
+		return nil
 	}
 	if x.done {
-		return 0, io.EOF
+		return &io.Error{
+			N:   0,
+			Err: io.EOF,
+		}
 	}
 
 	var o int
@@ -291,13 +313,17 @@ func (x *PacketReader) Read(b []byte) (int, error) {
 			// this is the beginning of a new packet
 			var n int64
 			nBytes := unsafe.Slice((*byte)(unsafe.Pointer(&n)), 8)
-			if _, err := x.R.Read(nBytes); err != nil {
-				return o, err
+			if err := x.R.Read(nBytes); err != nil {
+				err.N = o
+				return err
 			}
 
 			if n == 0 {
 				x.done = true
-				return o, io.EOF
+				return &io.Error{
+					N:   o,
+					Err: io.EOF,
+				}
 			}
 
 			x.n = int(n)
@@ -305,23 +331,30 @@ func (x *PacketReader) Read(b []byte) (int, error) {
 
 		if x.n >= len(b) {
 			// current packet has enough data
-			n, err := x.R.Read(b)
-			o += n
-			x.n -= n
-			return o, err
+			err := x.R.Read(b)
+			if err != nil {
+				x.n -= err.N
+				err.N += o
+			} else {
+				x.n -= len(b)
+			}
+			return err
 		}
 
 		// current packet does not have enough data; read what we can and move to next
-		n, err := x.R.Read(b[:x.n])
-		o += n
-		x.n = 0
+		err := x.R.Read(b[:x.n])
 		if err != nil {
-			return o, err
+			x.n -= err.N
+			err.N += o
+			return err
 		}
-		b = b[n:] // move up the slice
+
+		o += x.n
+		b = b[x.n:] // move up the slice
+		x.n = 0
 	}
 
-	return 0, nil // this should never be reached
+	return nil // this should never be reached
 }
 
 // A PacketWriter can be used to write a discrete message through a regular io.Writer.
@@ -350,26 +383,30 @@ func (x *PacketWriter) Close() error {
 
 	// 0 length marks message end
 	b := make([]byte, 8)
-	_, err := x.W.Write(b)
-	return err
+	if err := x.W.Write(b); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Write writes a new packet with content b. The caller controls packet size through len(b).
 // Does nothing if len(b) == 0.
-func (x *PacketWriter) Write(b []byte) (int, error) {
+func (x *PacketWriter) Write(b []byte) *io.Error {
 	if x.closed {
-		return 0, io.EOF // conventionally a read error, but its meaning should also be rather intuitive in a write context
+		return &io.Error{0, io.ErrClosed}
 	}
 
 	n := int64(len(b))
 	if n == 0 {
-		return 0, nil
+		return nil
 	}
 
 	// prepend packet length
 	nBytes := unsafe.Slice((*byte)(unsafe.Pointer(&n)), 8)
-	if _, err := x.W.Write(nBytes); err != nil {
-		return 0, err
+	if err := x.W.Write(nBytes); err != nil {
+		err.N = 0 // didn't actually write anything from b
+		return err
 	}
 	x.used = true
 
@@ -497,7 +534,7 @@ func (x *exchangeInput) Cancel() error {
 
 	err.Add(x.cancel())
 
-	return err.Wrap()
+	return err.Resolve()
 }
 
 // Close must be called when done reading.
@@ -567,6 +604,7 @@ func (x *exchangeOutput) Cancel() error {
 
 // Close may be called when done writing.
 func (x *exchangeOutput) Close() error {
+	x.closed = true
 	err := x.out.Close()
 	if err != nil {
 		// failure to send the message should not need any additional logistics
@@ -659,12 +697,18 @@ func Demultiplexer(src Inlet) MultiplexInlet {
 	return func() (int, Input, error) {
 		in, err := src()
 		if err != nil {
-			return 0, Input{}, errors.Message("input", err)
+			return 0, Input{}, &errors.T{
+				Message: "input",
+				Sub:     err,
+			}
 		}
 
 		var ch Int
 		if _, err := ch.ReadFrom(in.Read); err != nil {
-			oErr := errors.Message("channel ID read", err)
+			oErr := &errors.T{
+				Message: "channel ID read",
+				Sub:     err,
+			}
 			oErr.Link(in.Close())
 			return 0, Input{}, oErr
 		}
@@ -675,14 +719,7 @@ func Demultiplexer(src Inlet) MultiplexInlet {
 
 func DemultiplexInputTaker(dst MultiplexInputTaker) InputTaker {
 	return func(in Input) error {
-		var ch Int
-		if _, err := ch.ReadFrom(in.Read); err != nil {
-			oErr := errors.Message("channel ID read", err)
-			oErr.Link(in.Close())
-			return oErr
-		}
-
-		return dst(int(ch), in)
+		return Demultiplex(dst, in)
 	}
 }
 
@@ -690,11 +727,17 @@ func Multiplexer(dst Outlet) MultiplexOutlet {
 	return func(ch int) (Output, error) {
 		out, err := dst()
 		if err != nil {
-			return Output{}, errors.Message("output", err)
+			return Output{}, &errors.T{
+				Message: "output",
+				Sub:     err,
+			}
 		}
 
 		if _, err := Int(ch).WriteTo(out.Write); err != nil {
-			oErr := errors.Message("channel ID write", err)
+			oErr := &errors.T{
+				Message: "channel ID write",
+				Sub:     err,
+			}
 			oErr.Link(out.Close())
 			return Output{}, oErr
 		}

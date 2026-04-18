@@ -13,16 +13,19 @@ type MultiWriter []Writer
 // Errors do not stop the Write sequence.
 //
 // The returned errors will be marked with their respective writer index (int).
-func (x MultiWriter) Write(b []byte) (int, errors.G) {
+func (x MultiWriter) Write(b []byte) errors.G {
 	var oErr errors.G
 
 	for i, w := range x {
-		if _, err := w.Write(b); err != nil {
-			oErr = append(oErr, errors.Mark(i, err))
+		if err := w.Write(b); err != nil {
+			oErr = append(oErr, &errors.T{
+				Mark: i,
+				Sub:  err,
+			})
 		}
 	}
 
-	return len(b), oErr
+	return oErr
 }
 
 // A ReadBuffer pulls data in buffered chunks, minimizing the number of read calls to the underlying source Reader.
@@ -46,36 +49,47 @@ func ReadBufferMake(src Reader, buf []byte) *ReadBuffer {
 }
 
 // Any returned error is from underlying Read calls.
-func (x *ReadBuffer) Read(b []byte) (int, error) {
+func (x *ReadBuffer) Read(b []byte) *Error {
 	if x.w-x.r >= len(b) {
 		// have enough buffered data
 		copy(b, x.buf[x.r:x.w])
 		x.r += len(b)
-		return len(b), nil
+		return nil
 	}
 
-	// first copy what we have
+	// first, copy what we have
 	n := copy(b, x.buf[x.r:x.w])
 	b = b[n:]
 
 	if len(b) >= len(x.buf) {
 		// large read, no need to buffer
 		x.r = x.w
-		r, err := x.src.Read(b)
-		return n + r, err
+		err := x.src.Read(b)
+		if err != nil {
+			err.N += n
+		}
+		return err
 	}
 
 	// refill buffer; transfer what is needed
-	var err error
-	x.w, err = x.src.Read(x.buf)
-	if x.w > len(b) {
+	err := x.src.Read(x.buf)
+	if err != nil {
+		x.w = err.N
+
 		// silently drop error if we have enough data for another read
-		err = nil
+		if x.w > len(b) {
+			err = nil
+		} else {
+			// we'll return this already existing error value, but with the actual total read length
+			err.N += n
+		}
+	} else {
+		x.w = len(x.buf)
 	}
 
 	x.r = copy(b, x.buf[:x.w])
 
-	return n + x.r, err
+	return err
 }
 
 // Reset discards any pending data and sets the ReadBuffer to start reading from [src].
@@ -114,45 +128,48 @@ func (x *WriteBuffer) Flush() error {
 	if x.r == x.w {
 		return nil
 	}
-	n, err := x.dst.Write(x.buf[x.r:x.w])
-	x.r += n
-	if x.r == x.w {
-		x.r = 0
-		x.w = 0
+
+	if err := x.dst.Write(x.buf[x.r:x.w]); err != nil {
+		x.r += err.N
+		return err.Err
 	}
-	return err
+
+	x.r = 0
+	x.w = 0
+	return nil
 }
 
 // Any returned error is from underlying Write calls.
-func (x *WriteBuffer) Write(b []byte) (int, error) {
-	var (
-		o   = 0 // transfered byte count from b
-		err error
-	)
+func (x *WriteBuffer) Write(b []byte) *Error {
+	var n int // transfered byte count from b
+
 	for len(b) > 0 {
-		var n int
 		if x.w == 0 && len(b) >= len(x.buf) {
 			// large write with no pending data; transfer directly
-			n, err = x.dst.Write(b)
-			o += n
-			return o, err
+			if err := x.dst.Write(b); err != nil {
+				err.N += n
+				return err
+			}
+
+			return nil
 		}
 
-		n = copy(x.buf[x.w:], b)
-		b = b[n:]
-		x.w += n
-		o += n
+		m := copy(x.buf[x.w:], b)
+		b = b[m:]
+		x.w += m
+		n += m
 
 		if x.w == len(x.buf) {
 			// buffer is full, flush it
-			n, err = x.dst.Write(x.buf)
-			if err != nil {
-				x.r = n
-				return o, err
+			if err := x.dst.Write(x.buf); err != nil {
+				x.r = err.N
+				err.N = n
+				return err
 			}
+
 			x.w = 0
 		}
 	}
 
-	return o, err
+	return nil
 }
