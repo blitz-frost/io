@@ -54,11 +54,13 @@ func (x ExchangeInletAdapter) InputTake(id int, in Input) error {
 	return <-ein.req.done
 }
 
-// Returns io.EOF if closed.
+// Returns *errors.T marked with errors.Break if closed.
 func (x ExchangeInletAdapter) Input() (ExchangeInput, error) {
 	ein, ok := <-x.ch
 	if !ok {
-		return ExchangeInput{}, io.EOF
+		return ExchangeInput{}, &errors.T{
+			Mark: errors.Break,
+		}
 	}
 
 	return ExchangeInput{
