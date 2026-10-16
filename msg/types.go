@@ -173,12 +173,11 @@ func (x ExchangeSocket) Input() (ExchangeInput, error) {
 func (x ExchangeSocket) InputTake(in Input) error {
 	var id Int
 	if _, err := id.ReadFrom(in.Read); err != nil {
-		oErr := &errors.T{
+		err = &errors.T{
 			Message: "exchange ID read",
 			Sub:     err,
 		}
-		oErr.Link(in.Close())
-		return oErr
+		return errors.Join(err, in.Close())
 	}
 
 	// check request/response bit
@@ -226,9 +225,9 @@ func (x MultiplexMap) InputTake(ch int, in Input) error {
 	if !ok {
 		err := &errors.T{
 			Message: "invalid channel",
+			Info:    ch,
 		}
-		err.Link(in.Close())
-		return err
+		return errors.Join(err, in.Close())
 	}
 
 	return it(in)
@@ -240,9 +239,9 @@ func (x MultiplexSlice) InputTake(ch int, in Input) error {
 	if ch >= len(x) {
 		err := &errors.T{
 			Message: "invalid channel",
+			Info:    ch,
 		}
-		err.Link(in.Close())
-		return err
+		return errors.Join(err, in.Close())
 	}
 
 	return x[ch](in)
@@ -291,8 +290,6 @@ func (x *PacketReader) Close() error {
 			}
 		}
 	}
-
-	return nil // should never be reached
 }
 
 // Read reads from the first encountered message into b.
@@ -355,8 +352,6 @@ func (x *PacketReader) Read(b []byte) *io.Error {
 		b = b[x.n:] // move up the slice
 		x.n = 0
 	}
-
-	return nil // this should never be reached
 }
 
 // A PacketWriter can be used to write a discrete message through a regular io.Writer.
@@ -707,12 +702,11 @@ func Demultiplexer(src Inlet) MultiplexInlet {
 
 		var ch Int
 		if _, err := ch.ReadFrom(in.Read); err != nil {
-			oErr := &errors.T{
+			err = &errors.T{
 				Message: "channel ID read",
 				Sub:     err,
 			}
-			oErr.Link(in.Close())
-			return 0, Input{}, oErr
+			return 0, Input{}, errors.Join(err, in.Close())
 		}
 
 		return int(ch), in, nil
@@ -736,12 +730,11 @@ func Multiplexer(dst Outlet) MultiplexOutlet {
 		}
 
 		if _, err := Int(ch).WriteTo(out.Write); err != nil {
-			oErr := &errors.T{
+			err = &errors.T{
 				Message: "channel ID write",
 				Sub:     err,
 			}
-			oErr.Link(out.Close())
-			return Output{}, oErr
+			return Output{}, errors.Join(err, out.Close())
 		}
 
 		return out, nil
